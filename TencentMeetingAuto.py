@@ -107,7 +107,7 @@ class AutoMeetingApp(ctk.CTk):
         self.combo_hour = ctk.CTkComboBox(time_frame, width=70, height=40, values=[f"{i:02d}" for i in range(24)], state="readonly", fg_color=INPUT_GRAY, border_width=0)
         self.combo_hour.set("08"); self.combo_hour.pack(side="left")
         ctk.CTkLabel(time_frame, text=":", font=self.font_title, text_color="#FFFFFF").pack(side="left", padx=5)
-        self.combo_minute = ctk.CTkComboBox(time_frame, width=70, height=40, values=[f"{i:02d}" for i in range(60)], state="readonly", fg_color=INPUT_GRAY, border_width=0)
+        self.combo_minute = ctk.CTkComboBox(time_frame, width=70, height=40, values=[f"{i:02d}" for i in range(0, 60, 5)], state="readonly", fg_color=INPUT_GRAY, border_width=0)
         self.combo_minute.set("30"); self.combo_minute.pack(side="left")
         
         btn_add = ctk.CTkButton(row2, text="添加日程", font=self.font_title, height=40, corner_radius=10, fg_color=APPLE_BLUE, hover_color=APPLE_BLUE_HOVER, command=self.add_meeting)
