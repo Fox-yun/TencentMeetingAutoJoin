@@ -20,9 +20,7 @@ if platform.system() == "Windows":
         pass
 
 def robust_match(template_path, region_type="center", confidence=0.75):
-    """
-    通过多尺度缩放搜索，适配不同显示器的 DPI
-    """
+
     if not os.path.exists(template_path):
         return None
     
@@ -131,31 +129,31 @@ class AutoMeetingApp(ctk.CTk):
         self.log_text.see("end"); self.log_text.configure(state="disabled")
 
     def execute_join_process(self, meeting):
-        self.log(f"⏰ 正在唤起浏览器: {meeting['name']}")
+        self.log(f" 正在唤起浏览器: {meeting['name']}")
         webbrowser.open(meeting['url'])
         
         time.sleep(3) 
-        self.log("🪟 强制最大化浏览器窗口以适配屏幕...")
+        self.log(" 强制最大化浏览器窗口以适配屏幕...")
         pyautogui.hotkey('win', 'up') 
         time.sleep(1)
 
-        self.log("🔍 正在扫描网页加入按钮...")
+        self.log(" 正在扫描网页加入按钮...")
         pos, val = robust_match("join_btn.png", region_type="center")
         if pos:
-            self.log(f"✅ 找到网页按钮 (得分:{val:.2f})")
+            self.log(f" 找到网页按钮 (得分:{val:.2f})")
             pyautogui.click(pos[0], pos[1])
             
             time.sleep(3)
-            self.log("🔍 正在扫描弹窗确认按钮...")
+            self.log(" 正在扫描弹窗确认按钮...")
             pos2, val2 = robust_match("open_btn.png", region_type="top")
             if pos2:
-                self.log(f"✅ 找到确认按钮 (得分:{val2:.2f})")
+                self.log(f" 找到确认按钮 (得分:{val2:.2f})")
                 pyautogui.click(pos2[0], pos2[1])
-                self.log("✨ 流程执行完毕")
+                self.log("流程执行完毕")
             else:
-                self.log("⚠️ 未能识别弹窗按钮，建议检查截图或手动确认")
+                self.log(" 未能识别弹窗按钮，建议检查截图或手动确认")
         else:
-            self.log("⚠️ 未发现网页“加入会议”按钮，请检查网页是否被正确加载")
+            self.log(" 未发现网页“加入会议”按钮，请检查网页是否被正确加载")
 
     def scheduler_loop(self):
         days_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
