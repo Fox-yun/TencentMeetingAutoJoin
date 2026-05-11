@@ -12,82 +12,71 @@ import numpy as np
 import pyautogui
 import platform
 
+# ================= 1. 系统级 DPI 适配 (解决高分屏偏移) =================
 if platform.system() == "Windows":
     try:
         import ctypes
+        # 设置进程具有全 DPI 感知能力，确保获取的是物理像素
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         pass
 
-def multi_scale_match(screenshot, template, min_scale=0.5, max_scale=2.0, steps=20, confidence=0.8):
-    gray_screen = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
-    gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-    
-    best_max_val = -1
-    best_loc = None
-    best_w, best_h = 0, 0
-    
-    for scale in np.linspace(min_scale, max_scale, steps):
-        w = int(gray_template.shape[1] * scale)
-        h = int(gray_template.shape[0] * scale)
-        if w > gray_screen.shape[1] or h > gray_screen.shape[0] or w == 0 or h == 0: continue
-        resized_template = cv2.resize(gray_template, (w, h))
-        res = cv2.matchTemplate(gray_screen, resized_template, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, max_loc = cv2.minMaxLoc(res)
-        if max_val > best_max_val:
-            best_max_val = max_val
-            best_loc = max_loc
-            best_w, best_h = w, h
-
-    if best_max_val >= confidence:
-        center_x = best_loc[0] + best_w // 2
-        center_y = best_loc[1] + best_h // 2
-        return True, (center_x, center_y), best_max_val
-    return False, None, best_max_val
-
-def wait_and_click(template_path, timeout=15, interval=1.0, confidence=0.8, log_callback=print):
-    log_callback(f"正在寻找: {template_path} ...")
+# ================= 2. 强化版多尺度匹配算法 (适配不同分辨率) =================
+def robust_match(template_path, region_type="center", confidence=0.75):
+    """
+    通过多尺度缩放搜索，适配不同显示器的 DPI
+    """
     if not os.path.exists(template_path):
-        log_callback(f" 找不到图片: {template_path}")
-        return False
-        
-    template_img = cv2.imread(template_path)
-    start_time = time.time()
+        return None
     
-    while time.time() - start_time < timeout:
-        screen_img = pyautogui.screenshot()
-        screen_img = cv2.cvtColor(np.array(screen_img), cv2.COLOR_RGB2BGR)
-        found, center_pos, val = multi_scale_match(screen_img, template_img, confidence=confidence)
-        
-        if found:
-            log_callback(f" 匹配成功！")
-            pyautogui.click(center_pos[0], center_pos[1])
-            return True
-        time.sleep(interval)
-        
-    log_callback(f"超时未找到: {template_path}")
-    return False
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    sw, sh = pyautogui.size() # 获取当前显示器物理分辨率
+    
+    # 3. 动态感应区：基于屏幕百分比而非固定像素
+    if region_type == "center":
+        # 网页按钮搜索区：屏幕中心 60%
+        roi = (int(sw*0.2), int(sh*0.2), int(sw*0.6), int(sh*0.6))
+    elif region_type == "top":
+        # 浏览器弹窗搜索区：屏幕顶部 40%
+        roi = (int(sw*0.2), 0, int(sw*0.6), int(sh*0.4))
+    else:
+        roi = (0, 0, sw, sh)
 
+    screenshot = pyautogui.screenshot(region=roi)
+    screen_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2GRAY)
+    
+    best_val = -1
+    best_loc = None
+    # 扩大缩放范围至 0.5-1.5 倍，步长设为 20，覆盖从笔记本到大屏的缩放差异
+    for scale in np.linspace(0.5, 1.5, 20):
+        w = int(template.shape[1] * scale)
+        h = int(template.shape[0] * scale)
+        if w > screen_cv.shape[1] or h > screen_cv.shape[0] or w < 10: continue
+        
+        resized = cv2.resize(template, (w, h))
+        res = cv2.matchTemplate(screen_cv, resized, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        
+        if max_val > best_val:
+            best_val = max_val
+            best_loc = (max_loc[0] + w//2 + roi[0], max_loc[1] + h//2 + roi[1])
+
+    if best_val >= confidence:
+        return best_loc, best_val
+    return None, best_val
+
+# ================= 3. UI 与 业务逻辑 (保持原始布局) =================
 DATA_FILE = "meetings_data.json"
-
-APPLE_BLUE = "#0A84FF"         
-APPLE_BLUE_HOVER = "#0070DF"
-APPLE_GREEN = "#32D74B"        
-APPLE_GREEN_HOVER = "#28B83D"
-APPLE_RED = "#FF453A"          
-APPLE_RED_HOVER = "#D9362E"
-
-BG_BLACK = "#000000"           
-CARD_GRAY = "#1C1C1E"          
-INPUT_GRAY = "#2C2C2E"         
-TEXT_MUTED = "#8E8E93"         
+APPLE_BLUE = "#0A84FF"; APPLE_BLUE_HOVER = "#0070DF"
+APPLE_GREEN = "#32D74B"; APPLE_GREEN_HOVER = "#28B83D"
+APPLE_RED = "#FF453A"; APPLE_RED_HOVER = "#D9362E"
+BG_BLACK = "#000000"; CARD_GRAY = "#1C1C1E"; INPUT_GRAY = "#2C2C2E"; TEXT_MUTED = "#8E8E93"
 
 ctk.set_appearance_mode("Dark")
 
 class AutoMeetingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        
         self.title("Tencent Meeting Auto Join")
         self.geometry("820x680")
         self.minsize(780, 600)
@@ -100,198 +89,126 @@ class AutoMeetingApp(ctk.CTk):
 
         self.meetings = self.load_data()
         self.is_running = False
-        self.scheduler_thread = None
-        
         self.setup_ui()
         self.refresh_list()
 
     def setup_ui(self):
-        # --- 顶部大标题 ---
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=30, pady=(35, 15))
         ctk.CTkLabel(header_frame, text="日程管理", font=self.font_hero, text_color="#FFFFFF").pack(side="left")
 
-        # --- 输入区卡片 ---
         input_frame = ctk.CTkFrame(self, corner_radius=18, fg_color=CARD_GRAY)
         input_frame.pack(fill="x", padx=25, pady=10)
         
-        # 第一排输入 (名称与链接)
         row1 = ctk.CTkFrame(input_frame, fg_color="transparent")
         row1.pack(fill="x", padx=20, pady=(20, 10))
-        
-        self.entry_name = ctk.CTkEntry(row1, width=200, height=40, font=self.font_normal, 
-                                       placeholder_text="会议名称", corner_radius=10, 
-                                       fg_color=INPUT_GRAY, border_width=0, text_color="#FFFFFF")
+        self.entry_name = ctk.CTkEntry(row1, width=200, height=40, font=self.font_normal, placeholder_text="会议名称", corner_radius=10, fg_color=INPUT_GRAY, border_width=0, text_color="#FFFFFF")
         self.entry_name.pack(side="left", padx=(0, 15))
-        
-        self.entry_url = ctk.CTkEntry(row1, height=40, font=self.font_normal, 
-                                      placeholder_text="https://meeting.tencent.com/dm/...", 
-                                      corner_radius=10, fg_color=INPUT_GRAY, border_width=0, text_color="#FFFFFF")
+        self.entry_url = ctk.CTkEntry(row1, height=40, font=self.font_normal, placeholder_text="https://meeting.tencent.com/dm/...", corner_radius=10, fg_color=INPUT_GRAY, border_width=0, text_color="#FFFFFF")
         self.entry_url.pack(side="left", fill="x", expand=True)
 
         row2 = ctk.CTkFrame(input_frame, fg_color="transparent")
         row2.pack(fill="x", padx=20, pady=(0, 20))
-        
-        self.combo_day = ctk.CTkComboBox(row2, width=110, height=40, font=self.font_normal, corner_radius=10,
-                                         values=["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
-                                         state="readonly", fg_color=INPUT_GRAY, border_width=0, 
-                                         button_color=INPUT_GRAY, button_hover_color=CARD_GRAY, dropdown_fg_color=CARD_GRAY)
-        self.combo_day.set("星期一")
-        self.combo_day.pack(side="left", padx=(0, 15))
+        self.combo_day = ctk.CTkComboBox(row2, width=110, height=40, font=self.font_normal, corner_radius=10, values=["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"], state="readonly", fg_color=INPUT_GRAY, border_width=0)
+        self.combo_day.set("星期一"); self.combo_day.pack(side="left", padx=(0, 15))
         
         time_frame = ctk.CTkFrame(row2, fg_color="transparent")
         time_frame.pack(side="left", padx=(0, 15))
-        
-        hours = [f"{i:02d}" for i in range(24)]
-        self.combo_hour = ctk.CTkComboBox(time_frame, width=70, height=40, font=self.font_normal, corner_radius=10,
-                                         values=hours, state="readonly", fg_color=INPUT_GRAY, border_width=0, 
-                                         button_color=INPUT_GRAY, button_hover_color=CARD_GRAY, dropdown_fg_color=CARD_GRAY)
-        self.combo_hour.set("08")
-        self.combo_hour.pack(side="left")
-        
+        self.combo_hour = ctk.CTkComboBox(time_frame, width=70, height=40, values=[f"{i:02d}" for i in range(24)], state="readonly", fg_color=INPUT_GRAY, border_width=0)
+        self.combo_hour.set("08"); self.combo_hour.pack(side="left")
         ctk.CTkLabel(time_frame, text=":", font=self.font_title, text_color="#FFFFFF").pack(side="left", padx=5)
+        self.combo_minute = ctk.CTkComboBox(time_frame, width=70, height=40, values=[f"{i:02d}" for i in range(60)], state="readonly", fg_color=INPUT_GRAY, border_width=0)
+        self.combo_minute.set("30"); self.combo_minute.pack(side="left")
         
-        minutes = [f"{i:02d}" for i in range(0, 60, 5)]
-        self.combo_minute = ctk.CTkComboBox(time_frame, width=70, height=40, font=self.font_normal, corner_radius=10,
-                                         values=minutes, state="readonly", fg_color=INPUT_GRAY, border_width=0, 
-                                         button_color=INPUT_GRAY, button_hover_color=CARD_GRAY, dropdown_fg_color=CARD_GRAY)
-        self.combo_minute.set("30")
-        self.combo_minute.pack(side="left")
-        # ----------------------------------
-        
-        btn_add = ctk.CTkButton(row2, text="添加日程", font=self.font_title, height=40, corner_radius=10,
-                                fg_color=APPLE_BLUE, hover_color=APPLE_BLUE_HOVER, text_color="#FFFFFF", command=self.add_meeting)
+        btn_add = ctk.CTkButton(row2, text="添加日程", font=self.font_title, height=40, corner_radius=10, fg_color=APPLE_BLUE, hover_color=APPLE_BLUE_HOVER, command=self.add_meeting)
         btn_add.pack(side="right")
 
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
+        self.scrollable_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scrollable_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
         ctrl_frame = ctk.CTkFrame(self, fg_color="transparent")
         ctrl_frame.pack(fill="x", padx=25, pady=(10, 30))
-        
-        self.log_text = ctk.CTkTextbox(ctrl_frame, height=90, font=self.font_small, 
-                                       fg_color=CARD_GRAY, text_color=TEXT_MUTED, corner_radius=12, state="disabled")
+        self.log_text = ctk.CTkTextbox(ctrl_frame, height=90, font=self.font_small, fg_color=CARD_GRAY, text_color=TEXT_MUTED, state="disabled")
         self.log_text.pack(fill="x", pady=(0, 15))
-        
-        self.btn_toggle = ctk.CTkButton(
-            ctrl_frame, text="启动自动入会", font=ctk.CTkFont(family="Microsoft YaHei UI", size=18, weight="bold"),
-            fg_color=APPLE_GREEN, hover_color=APPLE_GREEN_HOVER, text_color="#000000",
-            height=55, corner_radius=15, command=self.toggle_service
-        )
+        self.btn_toggle = ctk.CTkButton(ctrl_frame, text="启动自动入会", font=ctk.CTkFont(family="Microsoft YaHei UI", size=18, weight="bold"), fg_color=APPLE_GREEN, hover_color=APPLE_GREEN_HOVER, text_color="#000000", height=55, corner_radius=15, command=self.toggle_service)
         self.btn_toggle.pack(fill="x")
 
     def log(self, msg):
         self.log_text.configure(state="normal")
         self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n")
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
-
-    def load_data(self):
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return []
-
-    def save_data(self):
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(self.meetings, f, ensure_ascii=False, indent=4)
-
-    def refresh_list(self):
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
-            
-        for m in self.meetings:
-            card = ctk.CTkFrame(self.scrollable_frame, corner_radius=15, fg_color=CARD_GRAY)
-            card.pack(fill="x", padx=5, pady=8)
-            
-            info_frame = ctk.CTkFrame(card, fg_color="transparent")
-            info_frame.pack(side="left", fill="both", expand=True, padx=20, pady=15)
-            
-            title_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
-            title_frame.pack(fill="x")
-            ctk.CTkLabel(title_frame, text=m['name'], font=self.font_title, text_color="#FFFFFF").pack(side="left", padx=(0, 15))
-            ctk.CTkLabel(title_frame, text=f"{m['day']} {m['time']}", font=self.font_normal, text_color=APPLE_BLUE).pack(side="left")
-            
-            ctk.CTkLabel(info_frame, text=m['url'], font=self.font_small, text_color=TEXT_MUTED).pack(anchor="w", pady=(4, 0))
-            
-            del_btn = ctk.CTkButton(card, text="移除", width=70, height=35, corner_radius=8,
-                                    fg_color="transparent", hover_color=INPUT_GRAY, 
-                                    text_color=APPLE_RED, font=self.font_normal,
-                                    command=lambda meeting=m: self.delete_meeting(meeting))
-            del_btn.pack(side="right", padx=15)
-
-    def add_meeting(self):
-        name = self.entry_name.get().strip()
-        url = self.entry_url.get().strip()
-        day = self.combo_day.get().strip()
-        
-        m_time = f"{self.combo_hour.get()}:{self.combo_minute.get()}"
-        
-        if not name or not url:
-            tk.messagebox.showwarning("提示", "请填写会议名称和链接！")
-            return
-            
-        self.meetings.append({"name": name, "url": url, "day": day, "time": m_time})
-        self.save_data()
-        self.refresh_list()
-        
-        self.entry_name.delete(0, 'end')
-        self.entry_url.delete(0, 'end')
-        self.combo_hour.set("08")
-        self.combo_minute.set("30")
-
-    def delete_meeting(self, meeting_to_del):
-        self.meetings = [m for m in self.meetings if m != meeting_to_del]
-        self.save_data()
-        self.refresh_list()
+        self.log_text.see("end"); self.log_text.configure(state="disabled")
 
     def execute_join_process(self, meeting):
-        self.log(f"正在拉起会议: {meeting['name']}")
+        self.log(f"⏰ 正在唤起浏览器: {meeting['name']}")
         webbrowser.open(meeting['url'])
         
-        if wait_and_click("join_btn.png", timeout=20, log_callback=self.log):
-            if wait_and_click("open_btn.png", timeout=10, log_callback=self.log):
-                self.log("成功进入会议")
+        # 强制窗口最大化，使布局归一化
+        time.sleep(3) 
+        self.log("🪟 强制最大化浏览器窗口以适配屏幕...")
+        pyautogui.hotkey('win', 'up') 
+        time.sleep(1)
+
+        # 步骤 1: 扫描中心区网页按钮
+        self.log("🔍 正在扫描网页加入按钮...")
+        pos, val = robust_match("join_btn.png", region_type="center")
+        if pos:
+            self.log(f"✅ 找到网页按钮 (得分:{val:.2f})")
+            pyautogui.click(pos[0], pos[1])
+            
+            # 步骤 2: 扫描顶部区弹窗按钮
+            time.sleep(3)
+            self.log("🔍 正在扫描弹窗确认按钮...")
+            pos2, val2 = robust_match("open_btn.png", region_type="top")
+            if pos2:
+                self.log(f"✅ 找到确认按钮 (得分:{val2:.2f})")
+                pyautogui.click(pos2[0], pos2[1])
+                self.log("✨ 流程执行完毕")
             else:
-                self.log(" 弹窗确认失败。")
+                self.log("⚠️ 未能识别弹窗按钮，建议检查截图或手动确认")
         else:
-            self.log(" 网页加载超时或截图不匹配。")
+            self.log("⚠️ 未发现网页“加入会议”按钮，请检查网页是否被正确加载")
 
     def scheduler_loop(self):
         days_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
-        triggered_today = set() 
-        last_checked_minute = ""
-
-        self.log("监控中...")
+        triggered = set(); last_min = ""
+        self.log("后台监控中...")
         while self.is_running:
             now = datetime.datetime.now()
-            current_day = days_map[now.weekday()]
-            current_time = now.strftime("%H:%M")
-            
-            if current_time != last_checked_minute:
-                triggered_today.clear()
-                last_checked_minute = current_time
-
+            curr_day = days_map[now.weekday()]; curr_time = now.strftime("%H:%M")
+            if curr_time != last_min: triggered.clear(); last_min = curr_time
             for m in self.meetings:
-                if m["day"] == current_day and m["time"] == current_time:
-                    uid = f"{m['name']}_{current_time}"
-                    if uid not in triggered_today:
-                        triggered_today.add(uid)
-                        threading.Thread(target=self.execute_join_process, args=(m,), daemon=True).start()
-            
+                if m["day"] == curr_day and m["time"] == curr_time:
+                    uid = f"{m['name']}_{curr_time}"
+                    if uid not in triggered:
+                        triggered.add(uid); threading.Thread(target=self.execute_join_process, args=(m,), daemon=True).start()
             time.sleep(5)
 
     def toggle_service(self):
         if not self.is_running:
             self.is_running = True
             self.btn_toggle.configure(text="停止自动入会", fg_color=APPLE_RED, hover_color=APPLE_RED_HOVER, text_color="#FFFFFF")
-            self.scheduler_thread = threading.Thread(target=self.scheduler_loop, daemon=True)
-            self.scheduler_thread.start()
+            threading.Thread(target=self.scheduler_loop, daemon=True).start()
         else:
             self.is_running = False
             self.btn_toggle.configure(text="启动自动入会", fg_color=APPLE_GREEN, hover_color=APPLE_GREEN_HOVER, text_color="#000000")
-            self.log("已停止监控。")
+            self.log("监控已停止")
+
+    def load_data(self): return json.load(open(DATA_FILE, "r", encoding="utf-8")) if os.path.exists(DATA_FILE) else []
+    def save_data(self): json.dump(self.meetings, open(DATA_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=4)
+    def refresh_list(self):
+        for w in self.scrollable_frame.winfo_children(): w.destroy()
+        for m in self.meetings:
+            card = ctk.CTkFrame(self.scrollable_frame, corner_radius=15, fg_color=CARD_GRAY)
+            card.pack(fill="x", padx=5, pady=8)
+            ctk.CTkLabel(card, text=f"{m['name']} | {m['day']} {m['time']}", font=self.font_title, text_color="#FFFFFF").pack(side="left", padx=20, pady=15)
+            ctk.CTkButton(card, text="移除", width=70, fg_color="transparent", text_color=APPLE_RED, command=lambda m=m: self.delete_meeting(m)).pack(side="right", padx=15)
+    def add_meeting(self):
+        n, u = self.entry_name.get().strip(), self.entry_url.get().strip()
+        if not n or not u: return
+        self.meetings.append({"name": n, "url": u, "day": self.combo_day.get(), "time": f"{self.combo_hour.get()}:{self.combo_minute.get()}"})
+        self.save_data(); self.refresh_list(); self.entry_name.delete(0, 'end'); self.entry_url.delete(0, 'end')
+    def delete_meeting(self, m):
+        self.meetings = [i for i in self.meetings if i != m]; self.save_data(); self.refresh_list()
 
 if __name__ == "__main__":
-    app = AutoMeetingApp()
-    app.mainloop()
+    app = AutoMeetingApp(); app.mainloop()
