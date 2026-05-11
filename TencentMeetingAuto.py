@@ -12,16 +12,13 @@ import numpy as np
 import pyautogui
 import platform
 
-# ================= 1. 系统级 DPI 适配 (解决高分屏偏移) =================
 if platform.system() == "Windows":
     try:
         import ctypes
-        # 设置进程具有全 DPI 感知能力，确保获取的是物理像素
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         pass
 
-# ================= 2. 强化版多尺度匹配算法 (适配不同分辨率) =================
 def robust_match(template_path, region_type="center", confidence=0.75):
     """
     通过多尺度缩放搜索，适配不同显示器的 DPI
@@ -30,14 +27,11 @@ def robust_match(template_path, region_type="center", confidence=0.75):
         return None
     
     template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
-    sw, sh = pyautogui.size() # 获取当前显示器物理分辨率
+    sw, sh = pyautogui.size() 
     
-    # 3. 动态感应区：基于屏幕百分比而非固定像素
     if region_type == "center":
-        # 网页按钮搜索区：屏幕中心 60%
         roi = (int(sw*0.2), int(sh*0.2), int(sw*0.6), int(sh*0.6))
     elif region_type == "top":
-        # 浏览器弹窗搜索区：屏幕顶部 40%
         roi = (int(sw*0.2), 0, int(sw*0.6), int(sh*0.4))
     else:
         roi = (0, 0, sw, sh)
@@ -47,7 +41,6 @@ def robust_match(template_path, region_type="center", confidence=0.75):
     
     best_val = -1
     best_loc = None
-    # 扩大缩放范围至 0.5-1.5 倍，步长设为 20，覆盖从笔记本到大屏的缩放差异
     for scale in np.linspace(0.5, 1.5, 20):
         w = int(template.shape[1] * scale)
         h = int(template.shape[0] * scale)
@@ -65,7 +58,6 @@ def robust_match(template_path, region_type="center", confidence=0.75):
         return best_loc, best_val
     return None, best_val
 
-# ================= 3. UI 与 业务逻辑 (保持原始布局) =================
 DATA_FILE = "meetings_data.json"
 APPLE_BLUE = "#0A84FF"; APPLE_BLUE_HOVER = "#0070DF"
 APPLE_GREEN = "#32D74B"; APPLE_GREEN_HOVER = "#28B83D"
@@ -142,20 +134,17 @@ class AutoMeetingApp(ctk.CTk):
         self.log(f"⏰ 正在唤起浏览器: {meeting['name']}")
         webbrowser.open(meeting['url'])
         
-        # 强制窗口最大化，使布局归一化
         time.sleep(3) 
         self.log("🪟 强制最大化浏览器窗口以适配屏幕...")
         pyautogui.hotkey('win', 'up') 
         time.sleep(1)
 
-        # 步骤 1: 扫描中心区网页按钮
         self.log("🔍 正在扫描网页加入按钮...")
         pos, val = robust_match("join_btn.png", region_type="center")
         if pos:
             self.log(f"✅ 找到网页按钮 (得分:{val:.2f})")
             pyautogui.click(pos[0], pos[1])
             
-            # 步骤 2: 扫描顶部区弹窗按钮
             time.sleep(3)
             self.log("🔍 正在扫描弹窗确认按钮...")
             pos2, val2 = robust_match("open_btn.png", region_type="top")
