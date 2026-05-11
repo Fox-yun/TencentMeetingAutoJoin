@@ -60,7 +60,7 @@ def wait_and_click(template_path, timeout=15, interval=1.0, confidence=0.8, log_
         found, center_pos, val = multi_scale_match(screen_img, template_img, confidence=confidence)
         
         if found:
-            log_callback(f" 匹配成功！点击坐标: {center_pos}")
+            log_callback(f" 匹配成功！")
             pyautogui.click(center_pos[0], center_pos[1])
             return True
         time.sleep(interval)
