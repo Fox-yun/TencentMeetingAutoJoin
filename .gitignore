@@ -1,0 +1,12 @@
+# 忽略编译文件夹和可执行文件
+build/
+dist/
+*.spec
+*.exe
+
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
+
+# 忽略本地用户生成的隐私数据文件！
+meetings_data.json
