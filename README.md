@@ -36,7 +36,7 @@ python TencentMeetingAuto.py
 | 文件名 | 截图内容说明 | 备注 |
 | --- | --- | --- |
 | `join_btn.png` | 网页中蓝色的“加入会议”按钮 | 建议仅截取按钮边缘以内的区域 |
-| `open_chrome.png` | 浏览器顶部的“打开腾讯会议”确认按钮 | 可根据使用的浏览器命名为 `open_edge.png` 等 |
+| `open_btn.png` | 浏览器顶部的“打开腾讯会议”确认按钮 |  |
 
 ---
 
